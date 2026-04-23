@@ -14,6 +14,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -25,15 +26,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # 2. Generate version date
-      - name: Get Version
-        id: get_version
+      - name: Get Date
+        id: get_date
         run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       # 3. Update files locally (不推送)
       - name: Update files
         run: |
           VERSION="${{ github.event.inputs.tag }}"
-          DATE_NUM="${{ steps.get_version.outputs.date }}"
+          DATE_NUM="${{ steps.get_date.outputs.date }}"
           DATE_HUMAN=$(date +%d-%m-%Y)
           CHANGELOG="${{ github.event.inputs.changelog }}"
           dos2unix module.prop || true
@@ -43,8 +44,8 @@ jobs:
           {
             "version": "$VERSION",
             "versionCode": "$DATE_NUM",
-            "zipUrl": "https://github.com/Kess66666/123/releases/download/$VERSION/box-$VERSION.zip",
-            "changelog": "https://github.com/Kess66666/123/raw/master/CHANGELOG.md"
+            "zipUrl": "https://github.com/${{ github.repository }}/releases/download/$VERSION/box-$VERSION.zip",
+            "changelog": "https://github.com/${{ github.repository }}/raw/master/CHANGELOG.md"
           }
           EOF
 
