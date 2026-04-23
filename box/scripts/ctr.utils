@@ -2,6 +2,10 @@
 
 # shellcheck disable=SC2039
 
+# ═══════════════════════════════════════════
+# WiFi 接口检测
+# ═══════════════════════════════════════════
+
 get_wifi_iface() {
   local iface
 
@@ -19,6 +23,10 @@ get_wifi_iface() {
 
   echo "wlan0"
 }
+
+# ═══════════════════════════════════════════
+# WiFi 信息获取
+# ═══════════════════════════════════════════
 
 # 获取当前 WiFi SSID
 get_current_ssid() {
@@ -83,6 +91,10 @@ get_wifi_ip() {
   ip addr show "$iface" 2>/dev/null | busybox awk '/inet /{print $2}' | cut -d/ -f1 | head -n1
 }
 
+# ═══════════════════════════════════════════
+# SSID/BSSID 列表匹配
+# ═══════════════════════════════════════════
+
 # 检查 SSID 是否在列表中
 is_ssid_in_list() {
   local ssid="$1"
@@ -107,34 +119,104 @@ is_bssid_in_list() {
   return 1
 }
 
+# ═══════════════════════════════════════════
+# 移动数据控制
+# ═══════════════════════════════════════════
+
+# 关闭移动数据
+disable_mobile_data() {
+  if svc data disable 2>/dev/null; then
+    log_msg "移动数据已关闭"
+    return 0
+  fi
+  log_msg "警告: 关闭移动数据失败"
+  return 1
+}
+
+# 开启移动数据
+enable_mobile_data() {
+  if svc data enable 2>/dev/null; then
+    log_msg "移动数据已开启"
+    return 0
+  fi
+  log_msg "警告: 开启移动数据失败"
+  return 1
+}
+
+# ═══════════════════════════════════════════
+# 家庭网络检测（MAC 地址）
+# ═══════════════════════════════════════════
+
+# 检查是否在家（通过网关 MAC 地址）
+is_at_home_by_mac() {
+  # 未配置 MAC 地址则跳过
+  [ -z "$HOME_GATEWAY_MAC" ] && return 1
+  
+  # 获取默认网关 IP
+  local gw_ip
+  gw_ip=$(ip route 2>/dev/null | busybox awk '$1=="default" {print $3; exit}')
+  [ -z "$gw_ip" ] && return 1
+  
+  # 获取网关 MAC 地址（仅 REACHABLE 状态）
+  local cur_mac
+  cur_mac=$(ip neigh show "$gw_ip" 2>/dev/null \
+    | awk '/REACHABLE/{print $5}' \
+    | tr '[:upper:]' '[:lower:]' | head -n 1)
+  [ -z "$cur_mac" ] && return 1
+  
+  # 统一大小写后比较
+  local target_mac
+  target_mac=$(echo "$HOME_GATEWAY_MAC" | tr '[:upper:]' '[:lower:]')
+  
+  [ "$cur_mac" = "$target_mac" ]
+}
+
+# ═══════════════════════════════════════════
+# 主判断逻辑
+# ═══════════════════════════════════════════
+
 # 判断是否应该启用服务
 should_enable_service() {
   local wifi_status="$1"
   local ssid="$2"
   local bssid="$3"
-  local matched="false"
   
-  if [ "$wifi_status" = "not_wifi" ]; then
+  if [ "$wifi_status" = "wifi" ]; then
+    # ── WiFi 已连接 → 关闭移动数据 ──
+    disable_mobile_data
+    
+    # ── MAC 地址检测（优先）──
+    if is_at_home_by_mac; then
+      log_msg "MAC 匹配: 在家 → 禁用代理"
+      return 1
+    fi
+    
+    # ── 降级到 SSID/BSSID 匹配 ──
+    if [ "$use_ssid_matching" = "true" ]; then
+      local matched="false"
+      
+      if [ -n "${wifi_bssids_list[*]}" ] && [ "$bssid" != "unknown" ]; then
+        is_bssid_in_list "$bssid" && matched="true" || matched="false"
+      else
+        [ -n "${wifi_ssids_list[*]}" ] && is_ssid_in_list "$ssid" && matched="true" || matched="false"
+      fi
+      
+      if [ "$matched" = "true" ]; then
+        [ "$use_wifi_list_mode" = "whitelist" ] && return 0 || return 1
+      else
+        [ "$use_wifi_list_mode" = "whitelist" ] && return 1 || return 0
+      fi
+    fi
+    
+    # 默认：WiFi 连接 + 无匹配规则 → 启用服务
+    log_msg "WiFi 连接: 无匹配规则 → 启用代理"
+    return 0
+    
+  else
+    # ── WiFi 已断开 → 开启移动数据 ──
+    enable_mobile_data
+    
+    log_msg "WiFi 断开 → 启用代理"
     [ "$use_module_on_wifi_disconnect" = "true" ] && return 0 || return 1
   fi
-  
-  if [ "$use_module_on_wifi" = "false" ]; then
-    return 1
-  fi
-  
-  if [ "$use_ssid_matching" = "true" ]; then
-    if [ -n "${wifi_bssids_list[*]}" ] && [ "$bssid" != "unknown" ]; then
-      is_bssid_in_list "$bssid" && matched="true" || matched="false"
-    else
-      [ -n "${wifi_ssids_list[*]}" ] && is_ssid_in_list "$ssid" && matched="true" || matched="false"
-    fi
-
-    if [ "$matched" = "true" ]; then
-      [ "$use_wifi_list_mode" = "whitelist" ] && return 0 || return 1
-    else
-      [ "$use_wifi_list_mode" = "whitelist" ] && return 1 || return 0
-    fi
-  fi
-  
-  return 0
 }
