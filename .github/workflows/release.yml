@@ -14,6 +14,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       # 1. Checkout repository
@@ -94,7 +96,6 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag }}
           files: box-*.zip
-          generate_release_notes: true
           body: |
             #### Changelog ${{ github.event.inputs.tag }}
             
