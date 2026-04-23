@@ -4,12 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布标签'
+        description: '发布标签 (例如: 1.2.8)'
         required: true
-      branch:
-        description: '目标分支（用于版本文件更新）'
-        required: true
-        default: 'master'
       changelog:
         description: '更新日志内容 (用 | 分隔多个项目)'
         required: true
@@ -31,7 +27,7 @@ jobs:
         id: get_version
         run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
-      # 3. Update update.json, module.prop, and CHANGELOG.md
+      # 3. Update files locally (不推送)
       - name: Update files
         run: |
           VERSION="${{ github.event.inputs.tag }}"
@@ -86,28 +82,13 @@ jobs:
           echo "$FORMATTED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 5. Commit and push changes
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add update.json module.prop CHANGELOG.md
-          
-          # 检查是否有变更
-          if git diff --cached --quiet; then
-            echo "没有文件变更，跳过提交"
-          else
-            git commit -m "release: ${{ github.event.inputs.tag }}"
-            git push origin HEAD:refs/heads/${{ github.event.inputs.branch }}
-          fi
-
-      # 6. Run build script
+      # 5. Run build script
       - name: Run build.sh
         run: |
           chmod +x build.sh
           ./build.sh
 
-      # 7. Create GitHub Release
+      # 6. Create GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
